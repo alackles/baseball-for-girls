@@ -59,8 +59,19 @@ def enrich_active_roster(app):
 if __name__ == "__main__":
     import sqlite3, os
     app = create_app()
+    
     with app.app_context():
-        seed_from_chadwick(app)
+    # Only seed if the player table is empty
+    from app import get_db
+    with app.app_context():
+        db = get_db(app)
+        count = db.execute("SELECT COUNT(*) FROM players").fetchone()[0]
+        if count == 0:
+            seed_from_chadwick(app)
+            enrich_active_roster(app)
+            print("Seeding complete.")
+        else:
+            print(f"Player table already populated ({count} players), skipping seed.")
         # Mark all seeded players inactive; enrich_active_roster will flip
         # currently-rostered MLB players back to active=1 with team data.
         db_path = os.environ.get("DATABASE_PATH",
