@@ -102,11 +102,7 @@ def create_app() -> Flask:
     app.secret_key = os.environ.get("SECRET_KEY", "dev-insecure-key")
     app.config["CONFIG"] = load_config()
 
-    # CORS: allow the gh-pages frontend origin
-    frontend_origin = os.environ.get(
-        "FRONTEND_ORIGIN", "https://alackles.github.io"
-    )
-    CORS(app, origins=[frontend_origin, "http://localhost:*", "http://127.0.0.1:*"])
+    CORS(app)
 
     # Ensure DB schema is applied
     init_db(app)
