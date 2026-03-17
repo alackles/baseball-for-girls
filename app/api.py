@@ -506,3 +506,141 @@ def trades_reject(trade_id: int):
     if not result["ok"]:
         return _err(result["error"])
     return _ok(**result)
+
+
+# ---------------------------------------------------------------------------
+# Export / Import  (for safe redeployment on ephemeral hosting)
+# ---------------------------------------------------------------------------
+@bp.get("/export")
+def export_db():
+    db = get_db(current_app)
+
+    # Collect the mlbam_ids referenced anywhere in user data so we can include
+    # just those player rows (avoids shipping the full ~100k-row players table).
+    ref_ids = set()
+    for row in db.execute(
+        "SELECT mlbam_id FROM rosters"
+        " UNION SELECT mlbam_id FROM draft_picks WHERE mlbam_id IS NOT NULL"
+        " UNION SELECT mlbam_id FROM draft_queue"
+        " UNION SELECT mlbam_id FROM trade_players"
+    ).fetchall():
+        ref_ids.add(row[0])
+
+    players = []
+    if ref_ids:
+        placeholders = ",".join("?" * len(ref_ids))
+        players = [
+            dict(r)
+            for r in db.execute(
+                f"SELECT mlbam_id, fg_id, name_first, name_last, position, bats, throws, team, active"
+                f" FROM players WHERE mlbam_id IN ({placeholders})",
+                list(ref_ids),
+            ).fetchall()
+        ]
+
+    def rows(table):
+        return [dict(r) for r in db.execute(f"SELECT * FROM {table}").fetchall()]
+
+    return _ok(
+        exported_at=datetime.now(timezone.utc).isoformat(),
+        players=players,
+        teams=rows("teams"),
+        rosters=rows("rosters"),
+        draft_picks=rows("draft_picks"),
+        draft_queue=rows("draft_queue"),
+        trades=rows("trades"),
+        trade_players=rows("trade_players"),
+        weekly_scores=rows("weekly_scores"),
+    )
+
+
+@bp.post("/import")
+def import_db():
+    key = request.args.get("key", "")
+    if key != current_app.config.get("SECRET_KEY", ""):
+        return _err("forbidden", 403)
+
+    data = request.get_json(silent=True)
+    if not data:
+        return _err("JSON body required.")
+
+    db = get_db(current_app)
+    total = 0
+
+    # Clear user tables in reverse FK order, then re-insert.
+    db.execute("DELETE FROM weekly_scores")
+    db.execute("DELETE FROM trade_players")
+    db.execute("DELETE FROM trades")
+    db.execute("DELETE FROM draft_queue")
+    db.execute("DELETE FROM draft_picks")
+    db.execute("DELETE FROM rosters")
+    db.execute("DELETE FROM teams")
+
+    for p in data.get("players", []):
+        db.execute(
+            "INSERT OR REPLACE INTO players"
+            " (mlbam_id, fg_id, name_first, name_last, position, bats, throws, team, active)"
+            " VALUES (:mlbam_id,:fg_id,:name_first,:name_last,:position,:bats,:throws,:team,:active)",
+            p,
+        )
+        total += 1
+
+    for t in data.get("teams", []):
+        db.execute(
+            "INSERT INTO teams (id, name, owner, color) VALUES (:id,:name,:owner,:color)", t
+        )
+        total += 1
+
+    for r in data.get("rosters", []):
+        db.execute(
+            "INSERT INTO rosters (team_id, mlbam_id, slot, added_at)"
+            " VALUES (:team_id,:mlbam_id,:slot,:added_at)",
+            r,
+        )
+        total += 1
+
+    for p in data.get("draft_picks", []):
+        db.execute(
+            "INSERT INTO draft_picks"
+            " (pick_number, round, pick_in_round, team_id, mlbam_id, picked_at, expires_at, autopicked)"
+            " VALUES (:pick_number,:round,:pick_in_round,:team_id,:mlbam_id,:picked_at,:expires_at,:autopicked)",
+            p,
+        )
+        total += 1
+
+    for q in data.get("draft_queue", []):
+        db.execute(
+            "INSERT INTO draft_queue (team_id, mlbam_id, rank)"
+            " VALUES (:team_id,:mlbam_id,:rank)",
+            q,
+        )
+        total += 1
+
+    for t in data.get("trades", []):
+        db.execute(
+            "INSERT INTO trades"
+            " (id, proposed_at, resolved_at, status, proposing_team, receiving_team, effective_week)"
+            " VALUES (:id,:proposed_at,:resolved_at,:status,:proposing_team,:receiving_team,:effective_week)",
+            t,
+        )
+        total += 1
+
+    for tp in data.get("trade_players", []):
+        db.execute(
+            "INSERT INTO trade_players (trade_id, mlbam_id, from_team, to_team)"
+            " VALUES (:trade_id,:mlbam_id,:from_team,:to_team)",
+            tp,
+        )
+        total += 1
+
+    for ws in data.get("weekly_scores", []):
+        db.execute(
+            "INSERT INTO weekly_scores"
+            " (team_id, week_number, season, points, computed_at, breakdown_json)"
+            " VALUES (:team_id,:week_number,:season,:points,:computed_at,:breakdown_json)",
+            ws,
+        )
+        total += 1
+
+    db.commit()
+    return _ok(rows_imported=total)
