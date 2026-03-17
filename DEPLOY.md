@@ -130,6 +130,27 @@ python seed_players.py
 ```
 Then create teams and initialize the draft the same way as local setup.
 
+### 6. Deploying code changes mid-season
+Render's free tier has an ephemeral filesystem — every redeploy wipes `fantasy.db`. Before pushing any code changes once the draft has started, snapshot the database via the export endpoint and restore it after the redeploy.
+
+**Before pushing:**
+```bash
+curl https://your-app.onrender.com/api/export > backup.json
+```
+
+**Push your changes and wait for Render to finish redeploying.**
+
+**After redeploying:**
+```bash
+curl -X POST "https://your-app.onrender.com/api/import?key=YOUR_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d @backup.json
+```
+
+Replace `YOUR_SECRET_KEY` with the value you set in step 3. The import endpoint restores all teams, rosters, draft picks, queues, trades, and scores. It also re-seeds the small set of players referenced by your league (~60–100 rows), so a full `seed_players.py` re-run is not needed.
+
+> **Note:** If you export mid-draft, any active pick timers will be expired when the DB is restored. The autopick scheduler will process them within 5 minutes — same behavior as if the timer had naturally run out.
+
 ---
 
 ## Part 3: Frontend
