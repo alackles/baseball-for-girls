@@ -560,9 +560,13 @@ def import_db():
     if key != current_app.config.get("SECRET_KEY", ""):
         return _err("forbidden", 403)
 
-    data = request.get_json(force=True, silent=True)
-    if not data:
+    raw = request.get_data(as_text=True)
+    if not raw:
         return _err("JSON body required.")
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return _err("Invalid JSON body.")
 
     db = get_db(current_app)
     total = 0

@@ -142,7 +142,7 @@ curl https://your-app.onrender.com/api/export > backup.json
 
 **After redeploying:**
 ```bash
-curl -X POST "https://your-app.onrender.com/api/import?key=YOUR_SECRET_KEY" \
+curl -X POST "https://.onrender.com/api/import?key=YOUR_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d @backup.json
 ```
