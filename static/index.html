@@ -450,6 +450,13 @@
         <div class="pick-log" id="pickLog"><div class="loading">—</div></div>
       </div>
 
+      <div class="card" id="posTrackerCard">
+        <h2>Roster Minimums</h2>
+        <div id="posTracker" style="display:flex;flex-wrap:wrap;gap:0.4rem;padding:0.25rem 0">
+          <div class="loading">Select your team to track minimums</div>
+        </div>
+      </div>
+
       <div class="card">
         <h2>My Queue <span class="text-muted" style="text-transform:none;font-size:0.8rem">(autopick priority)</span></h2>
         <div class="player-search-row">
@@ -575,6 +582,8 @@ let state = {
   draftPollInterval: null,
   queue: [],          // array of mlbam_ids in rank order
   queueDetails: [],   // full player objects matching queue
+  myRoster: [],       // current roster for myTeamId
+  rosterMinimums: {}, // position minimums from config
   selectedRosterTeam: null,
   tradeWindowOpen: false,
   offeringIds: new Set(),
@@ -603,6 +612,7 @@ async function init() {
   const data = await api('/league');
   if (!data.ok) { console.error(data.error); return; }
   state.teams = data.teams;
+  state.rosterMinimums = data.roster_minimums || {};
   document.getElementById('leagueTitle').innerHTML =
     `⚾ <span>${data.league_name}</span>`;
   renderTeamBar();
@@ -674,6 +684,7 @@ function showView(name) {
   document.getElementById('view-' + name).classList.add('active');
   event.target.classList.add('active');
 
+  if (name === 'draft') renderPositionTracker();
   if (name === 'standings') loadStandings();
   if (name === 'trades') loadTrades();
   if (name === 'settings') loadSettings();
@@ -693,6 +704,32 @@ async function refreshDraftUI() {
   state.draftState = data;
   renderPickClock(data);
   renderPickLog(data.pick_log || []);
+  if (state.myTeamId) {
+    const rData = await api(`/roster/${state.myTeamId}`);
+    if (rData.ok) state.myRoster = rData.roster || [];
+    renderPositionTracker();
+  }
+}
+
+function renderPositionTracker() {
+  const el = document.getElementById('posTracker');
+  if (!el) return;
+  const minimums = state.rosterMinimums;
+  if (!Object.keys(minimums).length) { el.innerHTML = ''; return; }
+
+  const counts = {};
+  for (const p of state.myRoster) {
+    if (p.slot === 'active') counts[p.position] = (counts[p.position] || 0) + 1;
+  }
+
+  el.innerHTML = Object.entries(minimums).map(([pos, req]) => {
+    const have = counts[pos] || 0;
+    const met = have >= req;
+    const label = req > 1 ? `${pos} ${have}/${req}` : pos;
+    const color = met ? 'var(--green)' : 'var(--muted)';
+    const bg = met ? 'rgba(72,199,142,0.15)' : 'rgba(150,150,150,0.1)';
+    return `<span style="padding:0.2rem 0.5rem;border-radius:4px;font-size:0.82rem;font-weight:600;color:${color};background:${bg};border:1px solid ${color}">${label}</span>`;
+  }).join('');
 }
 
 function renderPickClock(data) {
@@ -784,14 +821,20 @@ function renderPlayerList(players) {
       <span class="player-pos"><span class="badge badge-pos">${p.position || '?'}</span></span>      
       ${p.available ? `
         <button class="btn btn-secondary btn-sm" onclick="addToQueue(${p.mlbam_id}, '${esc(p.name_full)}', '${p.position||''}')">+ Queue</button>
-        ${isMyPick ? `<button class="btn btn-primary btn-sm" onclick="draftPlayer(${p.mlbam_id}, '${esc(p.name_full)}')">Draft</button>` : ''}
+        ${isMyPick ? `<button class="btn btn-primary btn-sm" onclick="draftPlayer(${p.mlbam_id}, '${esc(p.name_full)}', '${p.position||''}')">Draft</button>` : ''}
       ` : `<span class="text-muted" style="font-size:0.78rem">Drafted</span>`}
     </div>
   `).join('');
 }
 
-async function draftPlayer(mlbamId, name) {
+async function draftPlayer(mlbamId, name, position) {
   if (!state.myTeamId) { alert('Select your team first.'); return; }
+  if (position) {
+    const existing = state.myRoster.find(r => r.position === position && r.slot === 'active');
+    if (existing) {
+      if (!confirm(`You already have ${existing.name_full} at ${position}. Draft ${name} anyway?`)) return;
+    }
+  }
   if (!confirm(`Draft ${name}?`)) return;
   const res = await api('/draft/pick', {
     method: 'POST',

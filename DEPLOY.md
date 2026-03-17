@@ -11,7 +11,6 @@
 
 ### 1. Install dependencies
 ```bash
-cd fantasy-baseball
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
@@ -61,6 +60,31 @@ curl -X POST http://localhost:5000/api/draft/initialize
 ```
 This generates the full snake order and starts the pick clock on Pick 1.
 
+### 6. Testing the draft locally
+
+Two workflows depending on whether you want to test against real data or a clean slate.
+
+**Workflow A — Isolated test (clean slate, recommended before the real draft):**
+Run against a separate database file so `fantasy.db` is never touched.
+```bash
+DATABASE_PATH=test_draft.db python run.py
+# In a second terminal (venv active):
+DATABASE_PATH=test_draft.db python seed_players.py
+# Then create teams via the Settings tab, set queues, and initialize the draft
+# When done: rm test_draft.db
+```
+
+**Workflow B — Reset against existing data:**
+Snapshot `fantasy.db` first, then reset after the test draft.
+```bash
+cp fantasy.db fantasy.db.backup     # snapshot before test draft
+# ... run draft via the UI ...
+python reset_draft.py               # clears picks + rosters; teams/players/queues preserved
+# Or restore the full snapshot instead: cp fantasy.db.backup fantasy.db
+```
+
+`reset_draft.py` also respects `DATABASE_PATH`, so `DATABASE_PATH=test_draft.db python reset_draft.py` works too.
+
 ---
 
 ## Part 2: Deploy the Backend to Render
@@ -91,7 +115,6 @@ In your Render service → **Environment** tab, add:
 |-----|-------|
 | `SECRET_KEY` | any long random string (e.g. run `python -c "import secrets; print(secrets.token_hex(32))"`) |
 | `DATABASE_PATH` | `/opt/render/project/src/fantasy.db` |
-| `FRONTEND_ORIGIN` | `https://alackles.github.io` |
 
 ### 4. Deploy and get your backend URL
 After deploy succeeds, Render gives you a URL like:
@@ -109,41 +132,13 @@ Then create teams and initialize the draft the same way as local setup.
 
 ---
 
-## Part 3: Deploy the Frontend to GitHub Pages
+## Part 3: Frontend
 
-### 1. Update the backend URL in index.html
-Open `static/index.html` and change line 1 of the `<script>` block:
-```javascript
-const BACKEND_URL = 'https://baseball-for-girls-api.onrender.com';
-```
+The frontend (`static/index.html`) is served directly by Flask at the root URL (`/`). No separate deployment is needed — your Render URL is both the API and the frontend.
 
-### 2. Create the gh-pages repo
-```bash
-# Create a new repo at github.com/alackles/baseball-for-girls
-# Then:
-git init baseball-for-girls-frontend
-cd baseball-for-girls-frontend
-cp ../fantasy-baseball/static/index.html ./index.html
-git add index.html
-git commit -m "Deploy frontend"
-git remote add origin https://github.com/alackles/baseball-for-girls
-git push -u origin main
-```
+`BACKEND_URL` in `index.html` is intentionally an empty string so that all API calls use relative URLs (same origin).
 
-### 3. Enable GitHub Pages
-1. Go to `github.com/alackles/baseball-for-girls` → **Settings → Pages**
-2. Source: **Deploy from a branch**
-3. Branch: `main`, folder: `/ (root)`
-4. Save
-
-Your frontend is live at: **https://alackles.github.io/baseball-for-girls**
-
-### 4. Future frontend updates
-```bash
-# Edit index.html, then:
-git add index.html && git commit -m "Update frontend" && git push
-```
-GitHub Pages redeploys automatically in ~1 minute.
+To update the frontend, edit `static/index.html`, commit, and push to your backend repo. Render redeploys automatically.
 
 ---
 

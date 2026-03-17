@@ -5,6 +5,7 @@ Player pool management: search, Chadwick register loading, available players.
 
 import csv
 import io
+import os
 import sqlite3
 import requests
 from flask import Flask, current_app
@@ -48,9 +49,9 @@ def seed_from_chadwick(app: Flask, limit_active: bool = True):
         rows_all.extend(reader)
     reader = iter(rows_all) 
 
-    db_path = app.config.get("DATABASE_PATH") or str(
+    db_path = os.environ.get("DATABASE_PATH", str(
         __import__("pathlib").Path(__file__).parent.parent / "fantasy.db"
-    )
+    ))
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys=ON")
 

@@ -78,6 +78,8 @@ def league():
         league_name=cfg["league_name"],
         season=cfg["season"],
         trade_window=trade_window_status(current_app),
+        roster_minimums=cfg.get("roster_minimums", {}),
+        roster_size=cfg.get("roster_size", 15),
     )
 
 
